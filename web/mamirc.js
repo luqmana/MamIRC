@@ -466,41 +466,71 @@ function fancyTextToElems(str) {
 	
 	// Parse URLs in each literal string, and apply formatting functions
 	var result = [];
-	parts.forEach(function(part) {
-		if (typeof part == "string") {
-			while (part != "") {
-				var match = URL_REGEX0.exec(part);
-				if (match == null)
-					match = URL_REGEX1.exec(part);
-				var textEnd = match != null ? match[1].length : part.length;
-				if (textEnd > 0) {
-					var elem = document.createTextNode(part.substr(0, textEnd));
-					if (bold || italic || underline || background != 0 || foreground != 1) {
-						var span = document.createElement("span");
-						if (bold) span.style.fontWeight = "bold";
-						if (italic) span.style.fontStyle = "italic";
-						if (underline) span.style.textDecoration = "underline";
-						if (background != 0)
-							span.style.backgroundColor = TEXT_COLORS[background];
-						if (foreground != 1)
-							span.style.color = TEXT_COLORS[foreground];
-						span.appendChild(elem);
-						elem = span;
-					}
-					result.push(elem);
-				}
-				if (match == null)
-					break;
+	parts.forEach(processPart);
+	function processPart(part) {
+		if (typeof part == "string" && part != "") {
+
+			// Link-ify any URLs present
+			var urlMatch = URL_REGEX0.exec(part) || URL_REGEX1.exec(part);
+			if (urlMatch != null) {
+				processPart(part.substr(0, urlMatch[1].length));
+
 				var a = document.createElement("a");
-				a.href = match[2];
+				a.href = urlMatch[2];
 				a.target = "_blank";
-				setElementText(a, match[2]);
+				setElementText(a, urlMatch[2]);
 				result.push(a);
-				part = part.substring(match[0].length);
+
+				processPart(part.substr(urlMatch[0].length));
+				return;
 			}
-		} else if (typeof part == "function")
+
+			// As well as any #<channel> fragments
+			var chanMatch = CHAN_REGEX0.exec(part) || CHAN_REGEX1.exec(part);
+			if (chanMatch != null) {
+				processPart(part.substr(0, chanMatch[1].length));
+
+				var a = document.createElement("a");
+				a.href = "#";
+				a.onclick = function() {
+					var switchToChan = function() {
+					   var windowName = activeWindow[0] + '\n' + chanMatch[2];
+					   if (windowNames.indexOf(windowName) == -1) {
+						   windowNames.push(windowName);
+						   windowNames.sort();
+						   windowData[windowName] = createBlankWindow();
+						   redrawWindowList();
+					   }
+					   setActiveWindow(windowName);
+					};
+					sendAction([["send-line", activeWindow[0], "JOIN " + chanMatch[2]]], switchToChan, null);
+				};
+				setElementText(a, chanMatch[2]);
+				result.push(a);
+
+				processPart(part.substr(chanMatch[0].length));
+				return;
+			}
+
+			// Otherwise apply any formatting as necessary to the text
+			var elem = document.createTextNode(part);
+			if (bold || italic || underline || background != 0 || foreground != 1) {
+				var span = document.createElement("span");
+				if (bold) span.style.fontWeight = "bold";
+				if (italic) span.style.fontStyle = "italic";
+				if (underline) span.style.textDecoration = "underline";
+				if (background != 0)
+					span.style.backgroundColor = TEXT_COLORS[background];
+				if (foreground != 1)
+					span.style.color = TEXT_COLORS[foreground];
+				span.appendChild(elem);
+				elem = span;
+			}
+			result.push(elem);
+		} else if (typeof part == "function") {
 			part();
-	});
+		}
+	}
 	
 	// Epilog
 	if (result.length == 0)  // Prevent having an empty <td> to avoid style/display problems
@@ -508,10 +538,12 @@ function fancyTextToElems(str) {
 	return result;
 }
 
-const SPECIAL_FORMATTING_REGEX = /[\u0002\u0003\u000F\u0016\u001D\u001F]|https?:\/\//;
+const SPECIAL_FORMATTING_REGEX = /[\u0002\u0003\u000F\u0016\u001D\u001F]|https?:\/\/|#[^ ]/;
 const COLOR_CODE_REGEX = /^\u0003(?:(\d{1,2})(?:,(\d{1,2}))?)?/;
 const URL_REGEX0 = /^(|.*? )(https?:\/\/[^ ]+)/;
 const URL_REGEX1 = /^(.*?\()(https?:\/\/[^ ()]+)/;
+const CHAN_REGEX0 = /^(|.*? )(#[^ ]+)/;
+const CHAN_REGEX1 = /^(.*?\()(#[^ ()]+)/;
 const TEXT_COLORS = [
 	"#FFFFFF", "#000000", "#00007F", "#009300",
 	"#FF0000", "#7F0000", "#9C009C", "#FC7F00",
